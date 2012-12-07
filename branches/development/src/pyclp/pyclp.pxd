@@ -55,6 +55,7 @@ cdef extern from "eclipse.h":
         PFLUSHIO
         PWAITIO
         PYIELD
+        PTHROW
         EC_OPTION_IO
         MEMORY_IO
         RANGE_ERROR
@@ -94,5 +95,17 @@ cdef extern from "eclipse.h":
     void ec_ref_set(ec_ref,pword)
     pword ec_ref_get (ec_ref)
     int ec_compare(pword pw1, pword pw2)
+    pword ec_arg(int n)
+    int ec_unify(pword, pword)
+    int ec_external(dident pred, int(*fct)(), dident module)
+    pword ec_arg (int)
+    int ec_unify(pword, pword)
+ 
+cdef extern from "error.h":
+    cdef enum dummy:
+       EC_EXTERNAL_ERROR   
+    
+    
+
     
     
