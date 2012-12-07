@@ -34,6 +34,7 @@ cimport libc.stdlib
 import io
 import weakref
 import string
+from cpython.version cimport PY_MAJOR_VERSION
 
 #Store a global reference used to return data from eclipse engine.
 cdef Var toPython=None
@@ -70,13 +71,21 @@ class pyclpEx(Exception):
     def __str__(self):
         return self.msg
 
-cdef unicode tounicode(char* s):
-    return s.decode('ascii', 'strict')
+cdef object tounicode(char* s):
+    cdef bytes py_string_bytes
+    if (PY_MAJOR_VERSION < 3):
+        py_string_bytes=s
+        return py_string_bytes
+    else:
+        return s.decode('ascii', 'strict')
 
-cdef unicode tounicode_with_length(
+cdef object tounicode_with_length(
         char* s, size_t length):
-    return s[:length].decode('ascii', 'strict')
-
+    if (PY_MAJOR_VERSION < 3):
+        return s[:length]
+    else:
+        return s[:length].decode('ascii', 'strict')
+    
 #===============================================================================
 # cdef unicode tounicode_with_length_and_free(
 #        char* s, size_t length):
@@ -85,10 +94,15 @@ cdef unicode tounicode_with_length(
 #    finally:
 #        libc.stdlib.free(s)
 #===============================================================================
-        
-cdef bytes tobytes(unicode string):
-    py_byte_string = string.encode('ascii')
-    return py_byte_string
+
+cdef bytes tobytes(object string):
+    if isinstance(string,unicode):
+        return string.encode('ascii')
+    elif isinstance(string,str):
+        return string
+    else:
+        raise ValueError("requires text input, got %s" % type(string))
+
 
 cpdef formatTermStr(element):
     """Just used to generate the string if terms.
@@ -178,9 +192,10 @@ class Stream(io.RawIOBase):
         :param n: Number of bytes to be read if omitted or equal to -1 it will return all avaiable bytes.
         :returns: bytes object
         """
-        #cdef char* buffer
+        cdef char* buffer
         cdef int lenght
         cdef int num_bytes_read
+        cdef bytes python_buffer
         lenght=ec_queue_avail(<int>self.stream_num)
         if n==0:
             return bytes(0)
@@ -188,14 +203,14 @@ class Stream(io.RawIOBase):
             # Don't read more buffer than available.
             if lenght > n:
                 lenght=n
-        #buffer=<char*>libc.stdlib.calloc(lenght,1)
-        buffer=bytes(lenght)
-        num_bytes_read=pyclp.ec_queue_read(<int> self.stream_num,<char*>buffer,lenght)
+        buffer=<char*>libc.stdlib.calloc(lenght,1)
+        num_bytes_read=pyclp.ec_queue_read(<int> self.stream_num,buffer,lenght)
         if num_bytes_read < 0 :
             raise IOError(n)
-        #r=buffer[0:lenght]
-        #libc.stdlib.free(buffer)
-        return buffer
+        
+        python_buffer=buffer[0:lenght]
+        libc.stdlib.free(buffer)
+        return python_buffer
     def write(self,buffer):
         """
         Write a bytes object to stream.

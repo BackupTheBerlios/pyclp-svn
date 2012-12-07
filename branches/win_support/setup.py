@@ -29,6 +29,7 @@ import platform
 
 class mymsvcompiler(oldMSVCCompiler):
     def link (self,*arg,**kargs):
+		#Generate .lib file if not yet done
         self.announce("Microsoft Visual C requires eclipse.lib\n Building it") 
         bits, linkage= platform.architecture()
         if bits=="32bit":
@@ -73,16 +74,11 @@ else:
 
 eclise_include_path=os.path.join(eclipsedir,'include',arch)
 eclipse_lib_path=os.path.join(eclipsedir,'lib',arch)
-
-#Generate .lib file if not yet done
-
-
-
 pyclp_module = Extension('pyclp.pyclp',
                            ['src/pyclp/pyclp.pyx'],
                            library_dirs=[eclipse_lib_path],
                            libraries=['eclipse'],
-                           include_dirs=[eclise_include_path,'src/pyclp/']
+                           include_dirs=[eclise_include_path,'src/pyclp/'],
                            )
 
 with open('README.txt') as file:
@@ -99,7 +95,7 @@ setup (name = 'PyCLP',
        cmdclass = {'build_ext': build_ext},
        ext_modules = [pyclp_module],
        package_dir={'': 'src'},
-       packages=['pyclp','pyclp.pyclp'],
+       packages=['pyclp'],
        long_description=long_description_read,
        classifiers=["Development Status :: 4 - Beta",
                     "Programming Language :: Prolog" 
