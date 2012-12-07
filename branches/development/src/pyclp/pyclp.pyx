@@ -37,6 +37,7 @@ import string
 
 #Store a global reference used to return data from eclipse engine.
 cdef Var toPython=None
+python_pred2func={}
 last_resume_result=None 
 # Store a weak reference in order to support cleanup function
 # All reference need to be destroyed before cleanup of eclipse engine
@@ -48,6 +49,7 @@ FLUSHIO=pyclp.PFLUSHIO
 WAITIO=pyclp.PWAITIO
 FAIL=False
 YIELD=pyclp.PYIELD
+THROW=pyclp.PTHROW
 OPTION_IO=pyclp.EC_OPTION_IO
 OPTION_MAPFILE=pyclp.EC_OPTION_MAPFILE
 OPTION_PARALLEL_WORKER=pyclp.EC_OPTION_PARALLEL_WORKER
@@ -343,6 +345,7 @@ def resume(in_term=None):
     cdef pyclp.ec_ref in_ref #Reference to store the value to be used for cut or yield
     global last_resume_result
     in_ref=toPython.ref.ref
+    # Eclipse resume can be executed with GIL released
     if in_term is None:
         result=pyclp.ec_resume1(in_ref)
     else:
@@ -358,6 +361,8 @@ def resume(in_term=None):
         return (WAITIO,toPython.value())
     elif pyclp.PYIELD ==result:
         return (YIELD,toPython.value())
+    elif pyclp.PTHROW == result: #:TODO: To be tested
+        return (PTHROW,None)
     else:
         assert False,"Unrecognized result from ec_resume"
         
@@ -509,12 +514,20 @@ cdef class Atom(Term):
         if string is not None:
             if not isinstance(string,str):
                 raise TypeError("Atom constructor accept only string")
+            #Convert to byte array
             py_byte_string = tobytes(string)
             c_string = py_byte_string
+            # Create dictionary entry
             self.ec_dict_ptr=pyclp.ec_did(c_string,0)
+            # Convert to atom pword and store in Term
             self.set_pword(pyclp.ec_atom(self.ec_dict_ptr))
+            
     cdef int set_pword(self,pyclp.pword in_pword) except -1:
+        """Override Term.set_pword to get  
+        """
         Term.set_pword(self,in_pword)
+        # Get dictionary entry and store. This required when 
+        # retrieving the result of a query.
         if ec_get_atom(self.get_pword(),&(self.ec_dict_ptr)) != pyclp.PSUCCEED:
             raise pyclpEx("Failed retrieving of Atom dictionary item")
             
@@ -620,6 +633,8 @@ cdef class PList(Term):
         return 1
             
     def __getitem__(self,index):
+        """Implement python list protocol
+        """
         cdef pyclp.pword tail
         cdef pyclp.pword head
         cdef pyclp.pword *array_pword
@@ -847,11 +862,45 @@ cdef class Var(Term):
         return result    
     def __str__(self):
         """
-        :return: Return pretty print string of object unified to this varible.\
+        :return: Return pretty print string of object unified to this variable.\
         If variable is uninstantiated it returns '_'
         """
         var_value=self.value()
         if var_value is None:
             return "_"
         else:
-            return str(self.value())               
+            return str(self.value())
+           
+#Execute a predicate defined in python 
+cdef public int call_python() with gil : 
+    try:
+        predicate=pword2object(ec_arg(1))
+        arguments=pword2object(ec_arg(2))
+        pred_string=predicate.__str__()
+        python_function=python_pred2func[pred_string]
+        
+        #Execute python function
+        result=python_function(arguments)
+    except:
+        # Error codes are negative numbers in C code.
+        # Note that in Prolog the positive counterparts are used!
+        #In -213 "error in external predicate"
+        return pyclp.EC_EXTERNAL_ERROR
+    print("ciao\n")
+    if result==SUCCEED:
+        return pyclp.PSUCCEED
+    else:
+        return pyclp.PFAIL
+
+def unify(term1,term2):
+    if pyclp.PSUCCEED==pyclp.ec_unify((<Term>term1).get_pword(),(<Term>term2).get_pword()):
+        return SUCCEED
+    else:
+        return FAIL   
+    
+def add_python_predicate(pred_name,func):
+    python_pred2func[pred_name]=func
+    
+def register_function(Atom module):
+    pyclp.ec_external(pyclp.ec_did("call_python",2), call_python, module.ec_dict_ptr)  
+    #pyclp.ec_external(in_pred.ec_dict_ptr, test, module.ec_dict_ptr)          
