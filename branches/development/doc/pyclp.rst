@@ -4,7 +4,7 @@ PyCLP Module Reference
 
 
 .. automodule:: pyclp
-    :members: init,cleanup,cut
+    :members: init,cleanup,cut,unify,add_python_function
     
 .. autofunction:: resume(in_term=None)
 

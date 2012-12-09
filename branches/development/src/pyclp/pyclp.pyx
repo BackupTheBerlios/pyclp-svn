@@ -34,6 +34,7 @@ cimport libc.stdlib
 import io
 import weakref
 import string
+import types
 from cpython.version cimport PY_MAJOR_VERSION
 
 #Store a global reference used to return data from eclipse engine.
@@ -104,7 +105,35 @@ cdef bytes tobytes(object string):
         return string
     else:
         raise ValueError("requires text input, got %s" % type(string))
-
+    
+#Execute a predicate defined in python 
+cdef public int call_python() with gil : 
+    try:
+        predicate=pword2object(ec_arg(1))
+        arguments=pword2object(ec_arg(2))
+        pred_string=predicate.__str__()      
+        python_function=python_pred2func[pred_string]
+        #Execute python function
+        result=python_function(arguments)
+    except Exception as p:
+        print(p)
+        # Error codes are negative numbers in C code.
+        # Note that in Prolog the positive counterparts are used!
+        # In -213 "error in external predicate"
+        return pyclp.EC_EXTERNAL_ERROR
+    if result==SUCCEED:
+        return pyclp.PSUCCEED
+    else:
+        return pyclp.PFAIL
+    
+cdef int register_call_python_pred():
+    """
+    Register call_python_function to eclipse engine.
+    """
+    cdef dident module_name_dict
+    module_name_dict=ec_did('eclipse',0)
+    return pyclp.ec_external(pyclp.ec_did("call_python_function",2), call_python, module_name_dict)  
+ 
 
 cpdef formatTermStr(element):
     """Just used to generate the string if terms.
@@ -253,16 +282,20 @@ def init():
     """This shall be called before calling any other function.
     This initialize Eclipse engine.
     
-    :returns:
-        False if init succeed.
-        True if init fails
+    :raise pyclp.pyclpEx: If init() fails
+
     """
-    global toPython
+    global toPython,last_resume_result,python_pred2func
+    python_pred2func={} #It shall be a empty dictionary at init. Defensive programming
     last_resume_result=None #It shall be None at init. Defensive programming
     pyclp.ec_set_option_long(pyclp.EC_OPTION_IO, pyclp.MEMORY_IO)
     if (pyclp.ec_init()):
-        return False
+        raise pyclpEx("init() failed")
     else:
+        #If the registering of call_python_func fails raise an exception
+        if register_call_python_pred() != pyclp.PSUCCEED:
+            cleanup()
+            raise pyclpEx("init() failed registering of eclipse:call_python_func")
         recreate_all_refs()
         if toPython is None:
             toPython=Var()
@@ -281,7 +314,9 @@ def cleanup():
         If after a cleanup it is called again :py:func:`pyclp.init` all terms created before the cleanup are not valid and they need 
         to be rebuilt.
     """
+    global last_resume_result,python_pred2func
     destroy_all_refs()
+    python_pred2func={}
     last_resume_result=None
     if (pyclp.ec_cleanup()):
         return False
@@ -530,7 +565,7 @@ cdef object pword2object(pyclp.pword in_pword):
     elif pyclp.ec_get_long(in_pword,&c_int)== pyclp.PSUCCEED:
         result=c_int
     elif pyclp.ec_get_nil(in_pword) == pyclp.PSUCCEED:
-        result=() 
+        result=() #Is the empty list
     # Check for Atom
     elif pyclp.ec_get_atom(in_pword,&dummy_dident)== pyclp.PSUCCEED:
         result=Atom(None)
@@ -766,15 +801,15 @@ cdef class Compound(Term):
                     args[index]=PList(args[index])
                 if not isinstance(args[index],Term):
                     args[index]=Term(args[index])
-            #Create c array fro eclipse function
+            #Create c array for eclipse function
             array_pword=<pyclp.pword *>(libc.stdlib.calloc(arity,sizeof(pyclp.pword)))
             for index in range(arity):
                 array_pword[index]=(<Term>(args[index])).get_pword()
             py_byte_string = tobytes(functor_string)
             c_string = py_byte_string # type casting
-            #Function dictionarry element
+            #Function dictionary element
             self.ec_dict_ptr=pyclp.ec_did(c_string,arity)
-            #Generte pword of compound term
+            #Generate pword of compound term
             self.ref.set(pyclp.ec_term_array(self.ec_dict_ptr,array_pword))
             libc.stdlib.free(array_pword)
     cpdef int arity(self):
@@ -886,36 +921,59 @@ cdef class Var(Term):
         else:
             return str(self.value())
            
-#Execute a predicate defined in python 
-cdef public int call_python() with gil : 
-    try:
-        predicate=pword2object(ec_arg(1))
-        arguments=pword2object(ec_arg(2))
-        pred_string=predicate.__str__()
-        python_function=python_pred2func[pred_string]
-        
-        #Execute python function
-        result=python_function(arguments)
-    except:
-        # Error codes are negative numbers in C code.
-        # Note that in Prolog the positive counterparts are used!
-        #In -213 "error in external predicate"
-        return pyclp.EC_EXTERNAL_ERROR
-    print("ciao\n")
-    if result==SUCCEED:
-        return pyclp.PSUCCEED
-    else:
-        return pyclp.PFAIL
+
 
 def unify(term1,term2):
-    if pyclp.PSUCCEED==pyclp.ec_unify((<Term>term1).get_pword(),(<Term>term2).get_pword()):
+    """
+    Implements unify as described in 
+    `ec_unify <http://www.eclipseclp.org/doc/embedding/embroot013.html>`_
+    
+    
+    This function must be used before initializing the ECLiPSe engine using :py:func:`pyclp.init`
+    
+    :type term1: pyclp.Var, pyclp.Compound, pyclp.PList    
+    :type term2: pyclp.Var, pyclp.Compound, pyclp.PList
+    
+    :returns: pyclp.SUCCEED or pyclp.FAIL  
+    
+    """
+    cdef Term term1_term
+    cdef Term term2_term
+    
+    if not isinstance(term1,Term):
+        term1_term=Term(term1)
+    else:
+        term1_term=term1
+        
+    if not isinstance(term2,Term):
+        term2_term=Term(term2)
+    else:
+        term2_term=term2
+        
+    if pyclp.PSUCCEED==pyclp.ec_unify(term1_term.get_pword(),term2_term.get_pword()):
         return SUCCEED
     else:
         return FAIL   
     
-def add_python_predicate(pred_name,func):
-    python_pred2func[pred_name]=func
+def add_python_function(eclipse_name,func):
+    """
+    Register a python function to be called from Eclipse using the predicate call_python.
+    E.g. call_python(<eclipse_name>,<list of terms.>).
+    The registered python function will be called as:
+    <func>(<list of terms>)
+    The registered function shall return pyclp.SUCCEED or any other value for reporting FAIL. 
     
-def register_function(Atom module):
-    pyclp.ec_external(pyclp.ec_did("call_python",2), call_python, module.ec_dict_ptr)  
-    #pyclp.ec_external(in_pred.ec_dict_ptr, test, module.ec_dict_ptr)          
+    :param eclipse_name: str or byte string. Name to be used to with predicate call_python_function
+    :param func: It shall be the function to be called. 
+    
+    """
+    if not isinstance(func,types.FunctionType):
+        raise TypeError("func shall be a function")
+    
+    if isinstance(eclipse_name,unicode) or isinstance(eclipse_name,str):
+        python_pred2func[eclipse_name]=func
+    else:
+        raise ValueError("eclipse_name shall be a text, got %s" % type(string)) 
+    
+    
+         

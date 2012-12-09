@@ -324,6 +324,31 @@ class Test_set_option(unittest.TestCase):
         resume()
         self.assertEqual(my_var.value(), 122*1024*1024, "Failed test OPTION_LOCALSIZE")
         cleanup()
+     
+class Test_external_predicates(unittest.TestCase):
+    """
+    Test calling python function from eclipse.
+    """
+    def setUp(self):
+        if not init():
+            raise
+        self.stdout=Stream('stdout')
+    def tearDown(self):
+        self.stdout.close()
+        if not cleanup():
+            raise
+    def test_call_with_arguments_and_unify(self):
+        eclipse_name='p_func'
+        def called_from_eclipse(arguments):
+            unify(arguments[0],arguments[1])
+            return SUCCEED
+        add_python_function(eclipse_name,called_from_eclipse)
+        my_var=Var()
+        Compound('call_python_function',Atom(eclipse_name),[1,my_var]).post_goal()
+        self.assertEqual(resume(),(SUCCEED,None),"Failed resume ")
+        self.assertEqual(my_var.value(),1,"Failed unification")
+
+        
 
 if __name__ == '__main__':
    unittest.main()
