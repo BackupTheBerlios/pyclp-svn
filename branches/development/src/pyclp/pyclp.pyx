@@ -1,3 +1,4 @@
+# cython: language_level=3
 #Simplified BSD License
 #Copyright (c) 2012, Oreste Bernardi
 #All rights reserved.
@@ -28,10 +29,11 @@ Pyclp is a Python library to interface ECLiPSe Constraint Programmig System.
 
 """
 
+
 cimport pyclp
 cimport cpython
 cimport libc.stdlib
-import io
+import io,sys
 import weakref
 import string
 import types
@@ -107,7 +109,10 @@ cdef bytes tobytes(object string):
         raise ValueError("requires text input, got %s" % type(string))
     
 #Execute a predicate defined in python 
-cdef public int call_python() with gil : 
+cdef public int call_python() with gil :
+    cdef int err_stream_number
+    cdef char * error_string
+    cdef bytes py_error_string 
     try:
         predicate=pword2object(ec_arg(1))
         arguments=pword2object(ec_arg(2))
@@ -116,7 +121,7 @@ cdef public int call_python() with gil :
         #Execute python function
         result=python_function(arguments)
     except Exception as p:
-        print(p)
+        print(p,file=sys.stderr)
         # Error codes are negative numbers in C code.
         # Note that in Prolog the positive counterparts are used!
         # In -213 "error in external predicate"

@@ -339,15 +339,31 @@ class Test_external_predicates(unittest.TestCase):
             raise
     def test_call_with_arguments_and_unify(self):
         eclipse_name='p_func'
+        
         def called_from_eclipse(arguments):
-            unify(arguments[0],arguments[1])
-            return SUCCEED
+            return unify(arguments[0],arguments[1])
+        
         add_python_function(eclipse_name,called_from_eclipse)
         my_var=Var()
         Compound('call_python_function',Atom(eclipse_name),[1,my_var]).post_goal()
         self.assertEqual(resume(),(SUCCEED,None),"Failed resume ")
         self.assertEqual(my_var.value(),1,"Failed unification")
-
+    def test_call_with_exception(self):
+        eclipse_name='p_func'
+        def called_from_eclipse(arguments):
+            a=a +1 
+            return SUCCEED
+        add_python_function(eclipse_name,called_from_eclipse)
+        my_var=Var()
+        Compound('call_python_function',Atom(eclipse_name),[1,my_var]).post_goal()
+        a,b=resume()
+        print(a,b)
+        out_stream=Stream(b)
+        print(out_stream.readall())
+        a,b=resume()
+        print(a,b)
+        #self.assertEqual(resume(),(SUCCEED,None),"Failed resume ")
+        #self.assertEqual(my_var.value(),1,"Failed unification")
         
 
 if __name__ == '__main__':
