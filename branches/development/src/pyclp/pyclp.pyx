@@ -1,4 +1,3 @@
-# cython: language_level=3
 #Simplified BSD License
 #Copyright (c) 2012, Oreste Bernardi
 #All rights reserved.
@@ -28,8 +27,7 @@ Pyclp is a Python library to interface ECLiPSe Constraint Programmig System.
  
 
 """
-
-
+from __future__ import print_function
 cimport pyclp
 cimport cpython
 cimport libc.stdlib
@@ -45,7 +43,9 @@ python_pred2func={}
 last_resume_result=None 
 # Store a weak reference in order to support cleanup function
 # All reference need to be destroyed before cleanup of eclipse engine
-all_active_refs=weakref.WeakSet() 
+all_active_refs=weakref.WeakSet()
+# Flag to signal when eclipse engine is initialized.
+cdef int eclipse_initialized=0 
 
 
 SUCCEED=True
@@ -139,6 +139,7 @@ cdef int register_call_python_pred():
     module_name_dict=ec_did('eclipse',0)
     return pyclp.ec_external(pyclp.ec_did("call_python_function",2), call_python, module_name_dict)  
  
+
 
 cpdef formatTermStr(element):
     """Just used to generate the string if terms.
@@ -287,32 +288,36 @@ def init():
     """This shall be called before calling any other function.
     This initialize Eclipse engine.
     
-    :raise pyclp.pyclpEx: If init() fails
+    :raise:
+        pyclpEx in case of failure or if eclipse engine is already initialized
 
     """
     global toPython,last_resume_result,python_pred2func
+    global eclipse_initialized
     python_pred2func={} #It shall be a empty dictionary at init. Defensive programming
+    if eclipse_initialized != 0:
+        raise pyclpEx("Tried to initialize an already initialized eclipse engine")
     last_resume_result=None #It shall be None at init. Defensive programming
     pyclp.ec_set_option_long(pyclp.EC_OPTION_IO, pyclp.MEMORY_IO)
     if (pyclp.ec_init()):
-        raise pyclpEx("init() failed")
+        raise pyclpEx("Failed initialization")
     else:
         #If the registering of call_python_func fails raise an exception
         if register_call_python_pred() != pyclp.PSUCCEED:
             cleanup()
             raise pyclpEx("init() failed registering of eclipse:call_python_func")
+        eclipse_initialized=1
         recreate_all_refs()
         if toPython is None:
             toPython=Var()
-        return True
+
 
 def cleanup():
     """This shutdown the Eclipse engine.
     After calling this function any operation on pyclp object or class could crash the program.
     
-    :returns:
-        False if cleanup succeed.
-        True if cleanup fails
+    :raise:
+        pyclpEx in case of failure or if eclipse engine is already shutdown
         
     .. warning::
     
@@ -320,13 +325,16 @@ def cleanup():
         to be rebuilt.
     """
     global last_resume_result,python_pred2func
+    global eclipse_initialized
+    if eclipse_initialized == 0:
+        raise pyclpEx("Tried to cleanup an already shutdown engine")
     destroy_all_refs()
     python_pred2func={}
+    eclipse_initialized=0
     last_resume_result=None
     if (pyclp.ec_cleanup()):
-        return False
-    else:
-        return True
+        raise pyclpEx("Failed cleanup operation")
+
 
 def cut():
     """
@@ -372,8 +380,12 @@ def resume(in_term=None):
         (pyclp.WAITIO,\ *stream_number*\ )  if eclipse engine try to read data \
         from stream identified by *stream_number*
         
-        (pyclp.PYIELD, *yield_returned_value*) in case of predicate call \
+        (pyclp.YIELD, *yield_returned_value*) in case of predicate call \
         `yield/2 <http://www.eclipseclp.org/doc/bips/kernel/externals/yield-2.html>`_.
+
+        (pyclp.THROW, *Term TagExit*) an event have been thrown and no one have catched it \
+        `exit_block/1 <http://www.eclipseclp.org/doc/bips/kernel/control/exit_block-1.html>`_.
+        
             
       
     .. warning::
@@ -416,8 +428,8 @@ def resume(in_term=None):
         return (WAITIO,toPython.value())
     elif pyclp.PYIELD ==result:
         return (YIELD,toPython.value())
-    elif pyclp.PTHROW == result: #:TODO: To be tested
-        return (PTHROW,None)
+    elif pyclp.PTHROW == result:
+        return (THROW,toPython.value())
     else:
         assert False,"Unrecognized result from ec_resume"
         
