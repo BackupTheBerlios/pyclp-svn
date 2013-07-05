@@ -364,7 +364,7 @@ class Test_external_predicates(unittest.TestCase):
         def called_from_eclipse(arguments):
             return unify(arguments[0],arguments[1])
         
-        add_python_function(eclipse_name,called_from_eclipse)
+        addPythonFunction(eclipse_name,called_from_eclipse)
         my_var=Var()
         Compound('call_python_function',Atom(eclipse_name),[1,my_var]).post_goal()
         self.assertEqual(resume(),(SUCCEED,None),"Failed resume ")
@@ -377,17 +377,12 @@ class Test_external_predicates(unittest.TestCase):
         def called_from_eclipse(arguments):
             a=a +1 
             return SUCCEED
-        add_python_function(eclipse_name,called_from_eclipse)
+        addPythonFunction(eclipse_name,called_from_eclipse)
         my_var=Var()
         Compound('call_python_function',Atom(eclipse_name),[1,my_var]).post_goal()
-        a,b=resume()
-        print(a,b)
-        out_stream=Stream(b)
-        print(out_stream.readall())
-        a,b=resume()
-        print(a,b)
-        #self.assertEqual(resume(),(SUCCEED,None),"Failed resume ")
-        #self.assertEqual(my_var.value(),1,"Failed unification")
+        with self.assertRaises(UnboundLocalError) as exp:
+            resume()
+        
         
 
 if __name__ == '__main__':

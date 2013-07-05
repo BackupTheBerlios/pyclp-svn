@@ -45,7 +45,9 @@ last_resume_result=None
 # All reference need to be destroyed before cleanup of eclipse engine
 all_active_refs=weakref.WeakSet()
 # Flag to signal when eclipse engine is initialized.
-cdef int eclipse_initialized=0 
+cdef int eclipse_initialized=0
+#Store exceptions raised by predicates implemented in Python
+pyPredicatesException=None 
 
 
 SUCCEED=True
@@ -107,12 +109,17 @@ cdef bytes tobytes(object string):
         return string
     else:
         raise ValueError("requires text input, got %s" % type(string))
+
+
     
 #Execute a predicate defined in python 
 cdef public int call_python() with gil :
+    global pyPredicatesException
     cdef int err_stream_number
     cdef char * error_string
-    cdef bytes py_error_string 
+    cdef pyclp.pword  python_error_pword
+    cdef int post_event_result
+    pyPredicatesException=None
     try:
         predicate=pword2object(ec_arg(1))
         arguments=pword2object(ec_arg(2))
@@ -120,24 +127,43 @@ cdef public int call_python() with gil :
         python_function=python_pred2func[pred_string]
         #Execute python function
         result=python_function(arguments)
-    except Exception as p:
-        print(p,file=sys.stderr)
-        # Error codes are negative numbers in C code.
-        # Note that in Prolog the positive counterparts are used!
-        # In -213 "error in external predicate"
-        return pyclp.EC_EXTERNAL_ERROR
+    # Python exception send a specific event 'python_error' that can be 
+    # handled and eventually masked in eclipse. If not catched the event trigger a
+    # raise of same exception (it is stored in global pyPredicatesException) 
+    except Exception as pyPredicatesException:
+        python_error_pword=pyclp.ec_atom(pyclp.ec_did("python_error_event",0))
+        post_event_result=ec_post_event(python_error_pword)
+        # if posting event is failing I raise regular external error event.
+        if post_event_result != pyclp.PSUCCEED:
+            # Error codes are negative numbers in C code.
+            # Note that in Prolog the positive counterparts are used!
+            # In -213 "error in external predicate"
+            return pyclp.EC_EXTERNAL_ERROR
+        else:
+            return FAIL
     if result==SUCCEED:
         return pyclp.PSUCCEED
     else:
         return pyclp.PFAIL
+    
     
 cdef int register_call_python_pred():
     """
     Register call_python_function to eclipse engine.
     """
     cdef dident module_name_dict
+    cdef int result
+    
     module_name_dict=ec_did('eclipse',0)
-    return pyclp.ec_external(pyclp.ec_did("call_python_function",2), call_python, module_name_dict)  
+    # Register predicate to call external function implemented in python.
+    #event_handler_compile_string="compile_term([python_error_event_handler(_):- exit_block(python_error)),:-  set_event_handler(python_error,python_error_event_handler) ]"
+    event_handler_compile_string=tobytes("compile_term([python_error_event_handler(_):- exit_block(python_error),:-  set_event_handler(python_error_event,python_error_event_handler/1) ])")
+    ec_post_string(event_handler_compile_string)
+    result=pyclp.ec_resume()
+    if pyclp.PSUCCEED != result:
+        return result
+    else:    
+        return pyclp.ec_external(pyclp.ec_did("call_python_function",2), call_python, module_name_dict)  
  
 
 
@@ -293,7 +319,8 @@ def init():
 
     """
     global toPython,last_resume_result,python_pred2func
-    global eclipse_initialized
+    global eclipse_initialized,pyPredicatesException
+    pyPredicatesException=None
     python_pred2func={} #It shall be a empty dictionary at init. Defensive programming
     if eclipse_initialized != 0:
         raise pyclpEx("Tried to initialize an already initialized eclipse engine")
@@ -325,7 +352,8 @@ def cleanup():
         to be rebuilt.
     """
     global last_resume_result,python_pred2func
-    global eclipse_initialized
+    global eclipse_initialized,pyPredicatesException
+    pyPredicatesException=None
     if eclipse_initialized == 0:
         raise pyclpEx("Tried to cleanup an already shutdown engine")
     destroy_all_refs()
@@ -411,6 +439,7 @@ def resume(in_term=None):
     cdef pyclp.pword in_pword
     cdef pyclp.ec_ref in_ref #Reference to store the value to be used for cut or yield
     global last_resume_result
+    
     in_ref=toPython.ref.ref
     # Eclipse resume can be executed with GIL released
     if in_term is None:
@@ -429,7 +458,13 @@ def resume(in_term=None):
     elif pyclp.PYIELD ==result:
         return (YIELD,toPython.value())
     elif pyclp.PTHROW == result:
-        return (THROW,toPython.value())
+        returned_value=toPython.value()
+        # if exception was raised in external predicate 
+        # re-raise the exception otherwise return value
+        if returned_value == Atom("python_error"):
+            raise pyPredicatesException
+        else:
+            return (THROW,returned_value)
     else:
         assert False,"Unrecognized result from ec_resume"
         
@@ -719,6 +754,13 @@ cdef class PList(Term):
         return index
     def iterheadtail(self):
         """
+        .. deprecated:: 1.5
+        
+        Replaced by :py:function:`PList.iterHeadTail`
+        """
+        return self.iterHeadTail()
+    def iterHeadTail(self):
+        """
         :returns: Iterator that returns a tuple (head,tail) where head is a element of the list and \
             tail is the remaining list
             
@@ -972,7 +1014,7 @@ def unify(term1,term2):
     else:
         return FAIL   
     
-def add_python_function(eclipse_name,func):
+def addPythonFunction(eclipse_name,func):
     """
     Register a python function to be called from Eclipse using the predicate call_python.
     E.g. call_python(<eclipse_name>,<list of terms.>).

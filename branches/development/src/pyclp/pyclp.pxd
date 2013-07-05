@@ -101,7 +101,10 @@ cdef extern from "eclipse.h":
     int ec_external(dident pred, int(*fct)(), dident module)
     pword ec_arg (int)
     int ec_unify(pword, pword)
- 
+    int ec_post_event(pword)
+    int ec_handle_events(long *ToC)
+    void ec_post_string(char *)
+
 cdef extern from "error.h":
     cdef enum dummy:
        EC_EXTERNAL_ERROR   
