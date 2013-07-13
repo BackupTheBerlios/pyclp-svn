@@ -114,6 +114,9 @@ cdef bytes tobytes(object string):
     
 #Execute a predicate defined in python 
 cdef public int call_python() with gil :
+    """
+    This is called from ECLiPSe
+    """
     global pyPredicatesException
     cdef int err_stream_number
     cdef char * error_string
@@ -756,7 +759,7 @@ cdef class PList(Term):
         """
         .. deprecated:: 1.5
         
-        Replaced by :py:function:`PList.iterHeadTail`
+        Replaced by :py:func:`PList.iterHeadTail`
         """
         return self.iterHeadTail()
     def iterHeadTail(self):
@@ -986,9 +989,8 @@ def unify(term1,term2):
     """
     Implements unify as described in 
     `ec_unify <http://www.eclipseclp.org/doc/embedding/embroot013.html>`_
-    
-    
-    This function must be used before initializing the ECLiPSe engine using :py:func:`pyclp.init`
+    This function shall be used only inside python function tha are called
+    from ECLiPSe
     
     :type term1: pyclp.Var, pyclp.Compound, pyclp.PList    
     :type term2: pyclp.Var, pyclp.Compound, pyclp.PList
@@ -1017,9 +1019,14 @@ def unify(term1,term2):
 def addPythonFunction(eclipse_name,func):
     """
     Register a python function to be called from Eclipse using the predicate call_python.
+    It shall be called after :py:func:`init`
+    
     E.g. call_python(<eclipse_name>,<list of terms.>).
+    
     The registered python function will be called as:
+    
     <func>(<list of terms>)
+    
     The registered function shall return pyclp.SUCCEED or any other value for reporting FAIL. 
     
     :param eclipse_name: str or byte string. Name to be used to with predicate call_python_function
