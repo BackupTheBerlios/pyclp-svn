@@ -45,3 +45,11 @@ Indices and tables
    :target: http://developer.berlios.de
    
    
+Bugs Reporting
+##############
+
+`Bugs reporting <http://developer.berlios.de/bugs/?group_id=12904>`_
+
+
+   
+   
