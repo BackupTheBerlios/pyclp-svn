@@ -1,0 +1,6 @@
+global-include *.rst
+global-include *.py
+global-include *.pxd
+global-include *.pyx
+global-include changeLog.txt
+graft doc/_build/html
