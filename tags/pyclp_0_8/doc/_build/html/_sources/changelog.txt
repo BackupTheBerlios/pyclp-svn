@@ -1,0 +1,35 @@
+Changelog
+#########
+
+
+Version 0.8
+***********
+
+**Bugs**
+
+* PList not handling correctly initialization with nested list (Fixed).
+
+**Enhancements**
+
+* Added capability to create Prolog List (PList) with any kind of tail. (before was supported only empty list tail)
+* Prolog lists that have a tail different from empty list (a.k.a. nil list) are converted to PList. 
+* Added ``getListTail`` function to PList to get the tail of a prolog list.
+* ``call_python_function/2`` predicate can be used in any module by importing pyclp module (``:- import pyclp``.)
+
+**Incompatibilities**
+
+* A prolog empty list is converted to a PList. In previous version it was converted to a standard empty tuple.
+
+Version 0.7
+***********
+
+* Fixed bug ``019229 inconsistency in treating 0 (zero)`` (thanks to Federico Ferri).
+
+
+Version 0.6
+***********
+
+* Added support for 64 bit building.
+* Tested on ECLiPSe 6.1
+* Added support to call python function from ECLiPSe predicates.
+* Added support for ECLiPSe events 
